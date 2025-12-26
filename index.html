@@ -1,31 +1,24 @@
-
 <!DOCTYPE html>
 <html lang="es">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>División Mágica - Aprendizaje Interactivo</title>
+    <title>División a Mano Alzada</title>
     
-    <!-- Estilos y Fuentes -->
+    <!-- Estilos (Tailwind CSS) y Fuentes -->
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Caveat:wght@400;700&family=Inter:wght@400;700;900&family=Fira+Mono:wght@500;700&display=swap" rel="stylesheet">
     <style>
       body { font-family: 'Inter', sans-serif; touch-action: none; overscroll-behavior: none; }
-      .handwritten { font-family: 'Caveat', cursive; }
       .math-font { font-family: 'Fira Mono', monospace; }
-      .division-box {
-        border-left: 4px solid #1e293b;
-        border-bottom: 4px solid #1e293b;
-      }
-      @media (min-width: 768px) {
-        .division-box {
-          border-left-width: 6px;
-          border-bottom-width: 6px;
-        }
-      }
+      /* Animaciones */
+      @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+      @keyframes zoomIn { from { transform: scale(0.95); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+      .animate-in { animation: fadeIn 0.2s ease-out forwards; }
+      .zoom-in-95 { animation: zoomIn 0.2s ease-out forwards; }
     </style>
 
-    <!-- ImportMap para React y GenAI -->
+    <!-- ImportMap para dependencias (React, GenAI) -->
     <script type="importmap">
 {
   "imports": {
@@ -40,10 +33,10 @@
 }
 </script>
     
-    <!-- Babel para compilar JSX en el navegador -->
+    <!-- Babel para procesar JSX en el navegador -->
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 </head>
-<body class="bg-slate-50 text-slate-900 h-[100dvh] overflow-hidden flex flex-col">
+<body class="bg-white text-slate-900 h-[100dvh] overflow-hidden flex flex-col">
     <div id="root" class="h-full w-full flex flex-col"></div>
 
     <!-- Lógica de la Aplicación -->
@@ -53,36 +46,30 @@
         import { GoogleGenAI, Type } from '@google/genai';
 
         // ------------------------------------------------------------------
-        // ⚠️ CONFIGURACIÓN: PEGA TU API KEY AQUÍ ABAJO
+        // CONFIGURACIÓN API KEY
         // ------------------------------------------------------------------
-        const MANUAL_API_KEY = "AIzaSyBHgc_I4g0IQOkZHAib0HHNoeUbqQwoHzU"; 
+        const API_KEY = "AIzaSyBHgc_I4g0IQOkZHAib0HHNoeUbqQwoHzU";
         
-        // Polyfill para simular el entorno
-        if (!window.process) window.process = { env: {} };
-        window.process.env.API_KEY = MANUAL_API_KEY;
+        // Configurar entorno para la librería
+        window.process = { env: { API_KEY } };
 
         // ------------------------------------------------------------------
-        // SERVICIO GEMINI (IA)
+        // SERVICIO DE RECONOCIMIENTO (IA)
         // ------------------------------------------------------------------
         const recognizeHandwriting = async (base64Image) => {
-          if (!window.process.env.API_KEY) {
-             alert("¡Falta la API Key! Edita el archivo index.html y agrega tu clave de Gemini.");
-             throw new Error("API Key missing");
-          }
-
           const ai = new GoogleGenAI({ apiKey: window.process.env.API_KEY });
           
           const prompt = `
-            Analiza esta imagen de una operación de división matemática.
-            Busca específicamente el COCIENTE final (escrito debajo del divisor) y el RESTO final (el último número a la izquierda abajo).
-            Retorna los valores en un JSON estricto.
-            Si no están presentes, devuelve null para esos campos.
-            Añade una breve explicación de qué números detectaste como dividendo, divisor, cociente y resto.
+            Analiza esta imagen de una operación de división matemática realizada a mano.
+            Debes identificar el COCIENTE (quotient) y el RESTO (remainder) final que el usuario ha escrito.
+            Retorna los valores en formato JSON.
+            Si no puedes identificar alguno de los valores, pon null.
+            Añade una breve explicación de lo que has visto.
           `;
 
           try {
             const response = await ai.models.generateContent({
-              model: "gemini-3-pro-preview", // Modelo recomendado para razonamiento matemático
+              model: "gemini-3-flash-preview",
               contents: {
                 parts: [
                   { text: prompt },
@@ -115,18 +102,20 @@
             return {
               quotient: null,
               remainder: null,
-              explanation: "No pude procesar la imagen correctamente. Verifica tu API Key o conexión."
+              explanation: "Error al conectar con el servicio de reconocimiento."
             };
           }
         };
 
         // ------------------------------------------------------------------
-        // COMPONENTE: DrawingCanvas
+        // COMPONENTE: DrawingCanvas (Lienzo)
         // ------------------------------------------------------------------
-        const DrawingCanvas = forwardRef(({ gridSize = 32, mode }, ref) => {
+        const DrawingCanvas = forwardRef(({ gridSize = 40, mode }, ref) => {
           const canvasRef = useRef(null);
           const [isDrawing, setIsDrawing] = useState(false);
           const [lastPoint, setLastPoint] = useState(null);
+          
+          // Historial para Deshacer/Rehacer
           const [history, setHistory] = useState([]);
           const [redoStack, setRedoStack] = useState([]);
 
@@ -165,14 +154,12 @@
             const ctx = canvas?.getContext('2d', { willReadFrequently: true });
             if (canvas && ctx) {
               const state = ctx.getImageData(0, 0, canvas.width, canvas.height);
-              setHistory(prev => [...prev.slice(-29), state]);
+              setHistory(prev => [...prev.slice(-19), state]);
               setRedoStack([]);
             }
           };
 
           const startDrawing = (e) => {
-            // Prevenir scroll en móviles
-            if (e.type === 'touchstart') document.body.style.overflow = 'hidden';
             setIsDrawing(true);
             const point = getPoint(e);
             setLastPoint(point);
@@ -180,7 +167,6 @@
 
           const draw = (e) => {
             if (!isDrawing || !lastPoint) return;
-            // e.preventDefault(); // Prevenir comportamientos nativos
             
             const canvas = canvasRef.current;
             const ctx = canvas?.getContext('2d');
@@ -194,11 +180,11 @@
             
             if (mode === 'eraser') {
               ctx.globalCompositeOperation = 'destination-out';
-              ctx.lineWidth = 40;
+              ctx.lineWidth = 20;
             } else {
               ctx.globalCompositeOperation = 'source-over';
-              ctx.strokeStyle = '#334155';
-              ctx.lineWidth = 4;
+              ctx.strokeStyle = '#1e293b'; // slate-800
+              ctx.lineWidth = 3;
             }
             
             ctx.moveTo(lastPoint.x, lastPoint.y);
@@ -209,7 +195,6 @@
           };
 
           const stopDrawing = () => {
-            document.body.style.overflow = '';
             if (isDrawing) {
               saveToHistory();
             }
@@ -255,6 +240,20 @@
                 ctx.putImageData(prev, 0, 0);
               }
             },
+            redo: () => {
+              if (redoStack.length === 0) return;
+              const canvas = canvasRef.current;
+              const ctx = canvas?.getContext('2d');
+              if (canvas && ctx) {
+                const next = redoStack[redoStack.length - 1];
+                
+                setHistory(prev => [...prev, next]);
+                setRedoStack(prev => prev.slice(0, -1));
+                
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                ctx.putImageData(next, 0, 0);
+              }
+            },
             getSnapshot: () => {
               const canvas = canvasRef.current;
               if (!canvas) return '';
@@ -274,7 +273,7 @@
           }));
 
           const gridStyle = {
-            backgroundImage: `radial-gradient(#cbd5e1 1.5px, transparent 1.5px)`,
+            backgroundImage: `linear-gradient(to right, #e2e8f0 1px, transparent 1px), linear-gradient(to bottom, #e2e8f0 1px, transparent 1px)`,
             backgroundSize: `${gridSize}px ${gridSize}px`,
           };
 
@@ -289,7 +288,7 @@
               onTouchMove={draw}
               onTouchEnd={stopDrawing}
               style={gridStyle}
-              className="w-full h-full cursor-crosshair touch-none bg-white/50"
+              className="w-full h-full cursor-crosshair touch-none bg-white transition-colors duration-200"
             />
           );
         });
@@ -308,8 +307,8 @@
           const canvasRef = useRef(null);
 
           const generateNewProblem = useCallback(() => {
-            const dividend = Math.floor(100000 + Math.random() * 899999);
-            const divisor = Math.floor(100 + Math.random() * 899);
+            const dividend = Math.floor(100000 + Math.random() * 899999); // 6 cifras
+            const divisor = Math.floor(100 + Math.random() * 899); // 3 cifras
             setProblem({ dividend, divisor });
             setFeedback(null);
             setAiAnalysis(null);
@@ -335,33 +334,27 @@
 
               if (result.quotient === null || result.remainder === null) {
                 setFeedback({ 
-                  type: 'info', 
-                  message: 'No logré leer bien el resultado. ¡Asegúrate de escribir el cociente y el resto final con claridad!' 
+                  type: 'error', 
+                  message: 'No se pudo identificar el cociente o el resto. Asegúrate de escribirlos claramente en tu resolución.' 
                 });
               } else {
                 const isValid = problem.dividend === (problem.divisor * result.quotient) + result.remainder;
-                const remainderIsValid = result.remainder < problem.divisor;
                 
-                if (isValid && remainderIsValid) {
+                if (isValid) {
                   setFeedback({ 
                     type: 'success', 
-                    message: '¡Perfecto! Has resuelto la división correctamente. ¡Eres un genio!' 
-                  });
-                } else if (!remainderIsValid) {
-                   setFeedback({ 
-                    type: 'error', 
-                    message: `¡Casi! Pero el resto (${result.remainder}) no puede ser mayor o igual que el divisor (${problem.divisor}).` 
+                    message: '¡Excelente trabajo! La operación es totalmente correcta.' 
                   });
                 } else {
                   setFeedback({ 
                     type: 'error', 
-                    message: 'Los números no encajan. Revisa tus multiplicaciones y restas.' 
+                    message: 'La operación no coincide. Revisa tus cálculos y asegúrate de que el resto sea menor que el divisor.' 
                   });
                 }
               }
               setShowModal(true);
             } catch (err) {
-              setFeedback({ type: 'error', message: 'Hubo un error técnico. ¿Pusiste la API Key?' });
+              setFeedback({ type: 'error', message: 'Ocurrió un error al procesar el dibujo. Verifica tu conexión.' });
               setShowModal(true);
             } finally {
               setIsLoading(false);
@@ -369,107 +362,116 @@
           };
 
           return (
-            <div className="flex flex-col h-full bg-slate-50 font-sans selection:bg-blue-100">
-              {/* Header */}
-              <header className="bg-white/80 backdrop-blur-md border-b border-slate-200 px-4 py-3 flex items-center justify-between z-20 sticky top-0">
-                <div className="flex items-center gap-3">
-                  <div className="bg-gradient-to-br from-blue-500 to-indigo-600 p-2 rounded-xl shadow-lg shadow-blue-200 text-white">
-                    <svg className="w-5 h-5 md:w-6 md:h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" /></svg>
+            <div className="flex flex-col h-screen max-h-screen bg-white overflow-hidden font-sans">
+              {/* Navbar Superior */}
+              <nav className="bg-white border-b border-slate-200 px-4 md:px-6 py-3 flex items-center justify-between gap-2 z-10 shadow-sm">
+                <div className="flex items-center gap-2 md:gap-3">
+                  <div className="bg-blue-600 p-1.5 md:p-2 rounded-lg text-white">
+                    <svg className="w-5 h-5 md:w-6 md:h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
                   </div>
-                  <div>
-                    <h1 className="text-lg md:text-xl font-black text-slate-800 tracking-tight leading-none">División Mágica</h1>
-                  </div>
+                  <h1 className="text-lg md:text-xl font-bold text-slate-800 hidden xs:block">División a Mano</h1>
                 </div>
 
-                <div className="hidden md:flex items-center bg-slate-100 p-1 rounded-2xl border border-slate-200">
-                  <button onClick={() => setDrawingMode('pencil')} className={`flex items-center gap-2 px-4 py-2 rounded-xl transition-all font-bold text-sm ${drawingMode === 'pencil' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-500 hover:text-slate-700'}`}>
-                    Lápiz
+                <div className="flex items-center bg-slate-50 p-1 rounded-xl border border-slate-200 shadow-inner">
+                  <button 
+                    onClick={() => setDrawingMode('pencil')}
+                    className={`p-1.5 md:p-2 rounded-lg transition-all ${drawingMode === 'pencil' ? 'bg-white shadow-md text-blue-600' : 'text-slate-400 hover:text-slate-600'}`}
+                    title="Lápiz"
+                  >
+                    <svg className="w-5 h-5 md:w-6 md:h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
                   </button>
-                  <button onClick={() => setDrawingMode('eraser')} className={`flex items-center gap-2 px-4 py-2 rounded-xl transition-all font-bold text-sm ${drawingMode === 'eraser' ? 'bg-white shadow-sm text-rose-600' : 'text-slate-500 hover:text-slate-700'}`}>
-                    Borrador
+                  <button 
+                    onClick={() => setDrawingMode('eraser')}
+                    className={`p-1.5 md:p-2 rounded-lg transition-all ${drawingMode === 'eraser' ? 'bg-white shadow-md text-red-600' : 'text-slate-400 hover:text-slate-600'}`}
+                    title="Borrador"
+                  >
+                    <svg className="w-5 h-5 md:w-6 md:h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
                   </button>
+                  <div className="w-px h-5 md:h-6 bg-slate-200 mx-1"></div>
+                  <button onClick={() => canvasRef.current?.undo()} className="p-1.5 md:p-2 text-slate-400 hover:text-slate-600" title="Deshacer"><svg className="w-5 h-5 md:w-6 md:h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" /></svg></button>
+                  <button onClick={() => canvasRef.current?.redo()} className="p-1.5 md:p-2 text-slate-400 hover:text-slate-600" title="Rehacer"><svg className="w-5 h-5 md:w-6 md:h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 10h-10a8 8 0 00-8 8v2m18-10l-6 6m6-6l-6-6" /></svg></button>
                 </div>
 
                 <div className="flex gap-2">
-                  <button onClick={generateNewProblem} className="p-2 md:px-4 md:py-2 bg-white text-slate-600 font-bold rounded-xl border border-slate-200 hover:bg-slate-50 transition-all text-sm shadow-sm">
-                    <span className="hidden sm:inline">Nueva</span>
-                    <span className="sm:hidden"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg></span>
-                  </button>
-                  <button onClick={handleCheck} disabled={isLoading} className={`px-4 py-2 md:px-6 bg-blue-600 text-white font-black rounded-xl shadow-lg shadow-blue-200 hover:bg-blue-700 active:scale-95 transition-all text-sm flex items-center gap-2 ${isLoading ? 'opacity-70 cursor-not-allowed' : ''}`}>
-                    {isLoading ? '...' : 'Corregir'}
+                  <button onClick={generateNewProblem} className="hidden sm:flex px-3 md:px-4 py-2 bg-white text-slate-600 font-semibold rounded-lg border border-slate-200 hover:bg-slate-50 transition-all text-sm md:text-base">Nueva</button>
+                  <button onClick={handleCheck} disabled={isLoading} className={`px-4 md:px-6 py-2 bg-blue-600 text-white font-bold rounded-lg shadow-md hover:bg-blue-700 transition-all text-sm md:text-base ${isLoading ? 'opacity-50' : ''}`}>
+                    {isLoading ? 'Analizando...' : 'Comprobar'}
                   </button>
                 </div>
-              </header>
+              </nav>
 
-              {/* Controles flotantes Móvil */}
-              <div className="md:hidden fixed bottom-6 left-1/2 -translate-x-1/2 flex items-center bg-white/90 backdrop-blur-lg p-2 rounded-3xl shadow-2xl border border-slate-200 z-30 gap-1">
-                <button onClick={() => setDrawingMode('pencil')} className={`p-4 rounded-2xl ${drawingMode === 'pencil' ? 'bg-blue-600 text-white' : 'text-slate-400'}`}><svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg></button>
-                <button onClick={() => setDrawingMode('eraser')} className={`p-4 rounded-2xl ${drawingMode === 'eraser' ? 'bg-rose-600 text-white' : 'text-slate-400'}`}><svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg></button>
-                <div className="w-px h-8 bg-slate-200 mx-2"></div>
-                <button onClick={() => canvasRef.current?.undo()} className="p-4 text-slate-400"><svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" /></svg></button>
-                <button onClick={() => canvasRef.current?.clear()} className="p-4 text-slate-400"><svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg></button>
-              </div>
-
-              {/* Area de Trabajo */}
-              <main className="flex-1 relative p-2 md:p-6 flex flex-col overflow-hidden">
-                <div className="relative flex-1 rounded-[2rem] overflow-hidden border-2 border-slate-200 shadow-xl bg-white flex flex-col">
-                  {/* Problema Matemático Superpuesto */}
-                  <div className="absolute top-0 left-0 right-0 pt-8 pb-4 flex justify-center pointer-events-none z-10 select-none">
-                     <div className="inline-flex items-start bg-white/80 backdrop-blur-sm p-4 md:p-8 rounded-3xl border border-slate-100 shadow-sm">
-                        <div className="flex flex-col items-end pt-1">
-                          <span className="math-font text-5xl md:text-8xl font-black text-slate-800 tracking-widest">{problem?.dividend}</span>
+              {/* Área Principal del Lienzo */}
+              <main className="flex-1 relative overflow-hidden">
+                <div className="w-full h-full relative">
+                  {/* Overlay del Problema - Sin fondo blanco/rectángulo externo */}
+                  {problem && (
+                    <div className="absolute top-8 md:top-12 left-0 right-0 z-10 flex justify-center items-start pointer-events-none select-none px-4">
+                      <div className="flex items-start max-w-full">
+                        {/* Dividendo */}
+                        <div className="pr-4 md:pr-12 pt-2">
+                          <span 
+                            className="text-4xl sm:text-6xl md:text-8xl font-mono font-black text-slate-800 whitespace-nowrap block" 
+                            style={{ letterSpacing: '0.3em', marginRight: '-0.3em' }}
+                          >
+                            {problem.dividend}
+                          </span>
                         </div>
-                        <div className="division-box ml-4 md:ml-6 pl-4 md:pl-6 pb-2 md:pb-6 pr-4 md:pr-10">
-                           <span className="math-font text-5xl md:text-8xl font-black text-slate-800 tracking-widest">{problem?.divisor}</span>
+                        
+                        {/* Divisor con la "L" característica de la división */}
+                        <div className="flex-shrink-0 border-l-4 md:border-l-8 border-b-4 md:border-b-8 border-slate-800 pl-4 md:pl-10 pb-2 md:pb-6 pr-2 md:pr-6 pt-2">
+                          <span 
+                            className="text-4xl sm:text-6xl md:text-8xl font-mono font-black text-slate-800 whitespace-nowrap block"
+                            style={{ letterSpacing: '0.2em', marginRight: '-0.2em' }}
+                          >
+                            {problem.divisor}
+                          </span>
                         </div>
                       </div>
-                  </div>
+                    </div>
+                  )}
 
                   <DrawingCanvas ref={canvasRef} mode={drawingMode} />
-
-                  {/* Desktop actions */}
-                  <div className="absolute top-4 right-4 hidden md:flex flex-col gap-2">
-                    <button onClick={() => canvasRef.current?.undo()} className="p-3 bg-white border border-slate-200 rounded-xl shadow-sm text-slate-400 hover:text-slate-600 transition-all"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" /></svg></button>
-                    <button onClick={() => canvasRef.current?.clear()} className="p-3 bg-white border border-slate-200 rounded-xl shadow-sm text-slate-400 hover:text-rose-600 transition-all"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg></button>
-                  </div>
                 </div>
               </main>
 
-              {/* Modal Resultados */}
+              {/* Modal de Resultados */}
               {showModal && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md animate-[fadeIn_0.3s_ease-out]">
-                  <div className="bg-white w-full max-w-md rounded-[2.5rem] shadow-2xl overflow-hidden animate-[zoomIn_0.3s_ease-out]">
-                    <div className={`p-8 text-center ${feedback?.type === 'success' ? 'bg-emerald-50' : feedback?.type === 'info' ? 'bg-blue-50' : 'bg-rose-50'}`}>
-                      <div className={`mx-auto w-16 h-16 rounded-3xl flex items-center justify-center mb-4 shadow-lg rotate-3 ${feedback?.type === 'success' ? 'bg-emerald-500 text-white' : feedback?.type === 'info' ? 'bg-blue-500 text-white' : 'bg-rose-500 text-white'}`}>
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in zoom-in-95">
+                  <div className="bg-white w-full max-w-lg rounded-[2.5rem] shadow-2xl overflow-hidden">
+                    <div className={`p-6 md:p-8 text-center ${feedback?.type === 'success' ? 'bg-green-50' : 'bg-red-50'}`}>
+                      <div className={`mx-auto w-14 h-14 md:w-16 md:h-16 rounded-full flex items-center justify-center mb-4 ${feedback?.type === 'success' ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'}`}>
                         {feedback?.type === 'success' ? (
-                          <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="4" d="M5 13l4 4L19 7" /></svg>
-                        ) : feedback?.type === 'info' ? (
-                          <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="4" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+                          <svg className="w-8 h-8 md:w-10 md:h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" /></svg>
                         ) : (
-                          <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="4" d="M6 18L18 6M6 6l12 12" /></svg>
+                          <svg className="w-8 h-8 md:w-10 md:h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M6 18L18 6M6 6l12 12" /></svg>
                         )}
                       </div>
-                      <h2 className="text-2xl font-black mb-2 tracking-tight text-slate-800">
-                        {feedback?.type === 'success' ? '¡Increíble!' : feedback?.type === 'info' ? '¿Qué pusiste?' : '¡Vuelve a intentarlo!'}
+                      <h2 className={`text-2xl md:text-3xl font-black mb-2 ${feedback?.type === 'success' ? 'text-green-800' : 'text-red-800'}`}>
+                        {feedback?.type === 'success' ? '¡Excelente!' : '¡Oops! Revisa'}
                       </h2>
-                      <p className="text-slate-600 font-bold leading-relaxed text-sm">{feedback?.message}</p>
+                      <p className="text-slate-600 font-medium px-4 text-sm md:text-base">{feedback?.message}</p>
                     </div>
 
-                    <div className="p-8 space-y-4">
+                    <div className="p-6 md:p-8">
                       {aiAnalysis && (
-                        <div className="flex gap-4 mb-4">
-                          <div className="flex-1 bg-slate-50 p-4 rounded-2xl border border-slate-100 text-center">
-                            <p className="text-[10px] uppercase font-black text-slate-400 mb-1">Cociente</p>
-                            <p className="text-3xl font-black text-slate-800 math-font">{aiAnalysis.quotient ?? '?'}</p>
-                          </div>
-                          <div className="flex-1 bg-slate-50 p-4 rounded-2xl border border-slate-100 text-center">
-                            <p className="text-[10px] uppercase font-black text-slate-400 mb-1">Resto</p>
-                            <p className="text-3xl font-black text-slate-800 math-font">{aiAnalysis.remainder ?? '?'}</p>
+                        <div className="bg-slate-50 rounded-3xl p-4 md:p-6 border border-slate-100 mb-6 md:mb-8">
+                          <div className="flex justify-around items-center">
+                            <div className="text-center">
+                              <span className="block text-[10px] md:text-xs text-slate-400 font-bold uppercase mb-1 tracking-tighter">Cociente detectado</span>
+                              <span className="text-3xl md:text-4xl font-mono font-black text-slate-700">{aiAnalysis.quotient ?? '?'}</span>
+                            </div>
+                            <div className="w-px h-10 md:h-12 bg-slate-200"></div>
+                            <div className="text-center">
+                              <span className="block text-[10px] md:text-xs text-slate-400 font-bold uppercase mb-1 tracking-tighter">Resto detectado</span>
+                              <span className="text-3xl md:text-4xl font-mono font-black text-slate-700">{aiAnalysis.remainder ?? '?'}</span>
+                            </div>
                           </div>
                         </div>
                       )}
-                      <button onClick={() => setShowModal(false)} className="w-full py-3.5 bg-slate-800 text-white font-black rounded-xl hover:bg-slate-900 transition-all shadow-xl active:scale-95">Seguir trabajando</button>
-                      <button onClick={generateNewProblem} className="w-full py-3.5 bg-blue-600 text-white font-black rounded-xl shadow-xl shadow-blue-100 hover:bg-blue-700 transition-all active:scale-95">Nueva división</button>
+                      <div className="flex flex-col gap-3">
+                        <button onClick={() => setShowModal(false)} className="w-full py-3 md:py-4 bg-slate-800 text-white font-bold rounded-2xl hover:bg-slate-900 transition-colors text-sm md:text-base">Corregir mi dibujo</button>
+                        <button onClick={generateNewProblem} className="w-full py-3 md:py-4 bg-blue-600 text-white font-bold rounded-2xl shadow-lg hover:bg-blue-700 transition-colors text-sm md:text-base">Nueva división</button>
+                      </div>
                     </div>
                   </div>
                 </div>
